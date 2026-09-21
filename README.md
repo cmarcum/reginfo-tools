@@ -1,7 +1,5 @@
 # pra-icr-tools
-Python scripts to help collect Paperwork Reduction Act Information Collections documents and metadata from reginfo.gov.
-
-This repository contains Python tools designed to query, scrape, and download metadata and documents associated with information collection requests from the Office of Management and Budget's (OMB) Office of Information and Regulatory Affairs (OIRA) Paperwork Reduction Act (PRA) database [reginfo.gov](https://reginfo.gov). 
+This repository contains Python tools designed to query, scrape, and download metadata and documents associated with information collection requests from the Office of Management and Budget's (OMB) Office of Information and Regulatory Affairs (OIRA) Paperwork Reduction Act (PRA) and Executive Order 12866 regulatory review database [reginfo.gov](https://reginfo.gov). 
 
 ## Background
 
@@ -14,16 +12,18 @@ Currently, there are four python scripts in this repository, covering both halve
 * pra-icr-download.py downloads documents from the ICR records pages in a reasonable file structure
 * eo-reg-search.py does the same thing as pra-icr-search.py, but for the "Reg Review" side of the site - OMB/OIRA's [Search of Regulatory Review](https://www.reginfo.gov/public/do/eoAdvancedSearchMain) of rules under Executive Order 12866
 * eo-reg-download.py pulls the full public record for a single RIN (Regulation Identifier Number) off the Reg Review side - View Rule snapshots, RIN Data XML, review conclusions, and any EO 12866 meeting materials
+
+All four can also be run through a single command-line interface tool called, `reginfo-tools.py`, documented in its own section below.
+
 More details about each tool are provided below.
 
-Several code-blocks were generated using Google's gemini (I've indicated in the script comments where that's the case). 
+Several code-blocks were generated using Google's gemini and Claude Code (I've indicated in the script comments where that's the case). 
 
 ## Prerequisites
-Ensure you have Python 3.7+ installed. Dependicies (mainly, [BeautifulSoup](https://pypi.org/project/beautifulsoup4/) for access to it's great DOM handlers), are located in [requirements.txt](requirements.txt), which can be installed:
+Ensure you have Python 3.7+ installed. Dependencies (mainly, [BeautifulSoup](https://pypi.org/project/beautifulsoup4/) for access to it's great DOM handlers), are located in [requirements.txt](requirements.txt), which can be installed:
 ```bash
 pip install -r requirements.txt
 ```
-
 ---
 
 ## Tool 1: PRA ICR Search (`pra-icr-search.py`)
@@ -209,4 +209,56 @@ python eo-reg-download.py 2060-AW46 --rule-data
 **3. Download Only EO 12866 Meeting Records and Materials**
 ```bash
 python eo-reg-download.py 2060-AW46 --meetings
+```
+
+---
+
+## Unified CLI: `reginfo-tools.py`
+
+### Description
+A single entry point that dispatches to the four scripts above by name, so you don't have to remember which of `pra-icr-search.py`, `pra-icr-download.py`, `eo-reg-search.py`, or `eo-reg-download.py` you want and where it lives. It's a thin wrapper - it execs the matching script as a subprocess with whatever arguments you give it, unchanged - so every flag, positional field, exit code, and codebook reference already documented above for each tool (see [codebook.md](codebook.md) for Tools 1-2, [eo-review-codebook.md](eo-review-codebook.md) for Tools 3-4) works identically here. The CLI simply calls each underlying script and does not reimplement them.
+
+The unified CLI was entirely written using Claude Code and then tested and edited manually by myself.
+
+| Subcommand | Runs | Codebook |
+| :--- | :--- | :--- |
+| `icr-search` | `pra-icr-search.py` | [codebook.md](codebook.md) |
+| `icr-download` | `pra-icr-download.py` | - |
+| `reg-search` | `eo-reg-search.py` | [eo-review-codebook.md](eo-review-codebook.md) |
+| `reg-download` | `eo-reg-download.py` | - |
+
+Run `python reginfo-tools.py --list` to print that table from the command line, and `python reginfo-tools.py <subcommand> --help` to see that tool's own arguments (the `--help` flag is passed straight through to the underlying script, not intercepted by the dispatcher).
+
+### Example Use Cases
+
+**1. List the available subcommands**
+```bash
+python reginfo-tools.py --list
+```
+
+**2. PRA ICR Search - IRS's currently active forms (Tool 1)**
+Same query as the Tool 1 example above, using [codebook.md](codebook.md) for the agency/sub-agency/status codes:
+```bash
+python reginfo-tools.py icr-search agencyCode=1500 subAgencyCode=1545 icrStatus=AC --output irs_active_forms.csv --delay 2
+```
+
+**3. PRA ICR Download - pull a specific ICR's documents (Tool 2)**
+```bash
+python reginfo-tools.py icr-download 202601-0920-012 --both
+```
+
+**4. EO 12866 Reg Review Search - a year of EPA's concluded reviews (Tool 3)**
+Uses the `eoStatusCode`/`concludedActionCode`/agency codes documented in [eo-review-codebook.md](eo-review-codebook.md):
+```bash
+python reginfo-tools.py reg-search agencyCode=2000 eoStatusCode=CD conclusionStartDate=01/01/2024 conclusionEndDate=12/31/2024 --output epa_2024_concluded.csv --delay 2
+```
+
+**5. EO 12866 Reg Review Download - pull a RIN's full record (Tool 4)**
+```bash
+python reginfo-tools.py reg-download 2060-AW46 --all
+```
+
+**6. View a tool's arguments**
+```bash
+python reginfo-tools.py reg-download --help
 ```
