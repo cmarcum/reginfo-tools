@@ -9,9 +9,11 @@ I wrote these scripts to support research, policy analysis, and the evaluation o
 
 The reginfo.gov has an old, outdated techstack that is largely supported by a single individual in OIRA. It currently lacks a public-facing API and the site instead relies on deeply nested and often malformed HTML tables, fragile session states, hidden anti-forgery tokens, and document downloads that are obscured behind specific JavaScript triggers rather than standard URL hyperlinks. Because basic web scraping methods routinely fail against these structural idiosyncrasies extracting comprehensive historical inventories requires a custom-built approach. The tools developed here bypass these hurdles by programmatically intercepting and passing hidden form tokens to preserve state during complex pagination and utilizing a hybrid Document-Object Model (DOM) and regex to identify and retrieve files hidden behind legacy frontend code.
 
-Currently, there are two python scripts in this repository:
+Currently, there are four python scripts in this repository, covering both halves of reginfo.gov:
 * pra-icr-search.py creates a way to automagically pull search results from querying [PRASearch](https://www.reginfo.gov/public/do/PRASearch)
 * pra-icr-download.py downloads documents from the ICR records pages in a reasonable file structure
+* eo-reg-search.py does the same thing as pra-icr-search.py, but for the "Reg Review" side of the site - OMB/OIRA's [Search of Regulatory Review](https://www.reginfo.gov/public/do/eoAdvancedSearchMain) of rules under Executive Order 12866
+* eo-reg-download.py pulls the full public record for a single RIN (Regulation Identifier Number) off the Reg Review side - View Rule snapshots, RIN Data XML, review conclusions, and any EO 12866 meeting materials
 More details about each tool are provided below.
 
 Several code-blocks were generated using Google's gemini (I've indicated in the script comments where that's the case). 
@@ -105,4 +107,122 @@ python pra-icr-download.py 202601-0920-012 --collections
 **3. Download Only Supporting Documents**
 ```bash
 python pra-icr-download.py 202601-0920-012 --supporting
+```
+
+---
+
+## Tool 3: EO 12866 Regulatory Review Search (`eo-reg-search.py`)
+
+### Description
+The regulation-side counterpart to `pra-icr-search.py`. It maps directly to the "Search of
+Regulatory Review" form at [https://www.reginfo.gov/public/do/eoAdvancedSearchMain](https://www.reginfo.gov/public/do/eoAdvancedSearchMain) -
+the search behind OMB/OIRA's review of agency rules under Executive Order 12866 (proposed
+rules, final rules, and everything in between that crosses OIRA's desk before publication).
+
+This search form is the same vintage as PRASearch and shares its 1000-result hard cap, so the
+script carries over the same reactive monthly chunker. Unlike PRASearch, though, the EO Review
+results page offers a genuine "View All" link, so under the 1000-row cap there's no pagination
+loop to fight through - the whole result set comes back in one response.
+
+Reginfo.gov silently rejects a query that omits `eoStatusCode` (Pending Review vs. Concluded)
+by just redisplaying the blank search form, so the script requires it up front rather than
+letting that fail invisibly. See [eo-review-codebook.md](eo-review-codebook.md) for the full
+field and agency/sub-agency code reference.
+
+### Output
+A single CSV file with the tabular metadata for the matched rules. Fields include:
+
+|`Received Date` | `RIN` | `Agency` | `Rule Title` | `Status` | `Concluded Date` | `Conclusion Action` | `PubID` | `RRID`|
+|-|-|-|-|-|-|-|-|-|
+
+`PubID` and `RRID` aren't shown on the results page itself - they're pulled out of the row's
+links - but they're what `eo-reg-download.py` needs to go fetch the full rule record, so
+the search tool surfaces them directly rather than making you re-derive them.
+
+### Example Use Cases
+
+**1. Pull a year of EPA's concluded reviews**
+```bash
+python eo-reg-search.py agencyCode=2000 eoStatusCode=CD conclusionStartDate=01/01/2024 conclusionEndDate=12/31/2024 --output epa_2024_concluded.csv --delay 2
+```
+
+**2. Everything currently sitting at OIRA**
+```bash
+python eo-reg-search.py eoStatusCode=PR --output pending_review.csv --delay 2
+```
+
+**3. Rules returned to an agency for reconsideration, government-wide**
+```bash
+python eo-reg-search.py eoStatusCode=CD concludedActionCode=RR conclusionStartDate=01/01/2000 conclusionEndDate=12/31/2024 --output returned_rules.csv --delay 2
+```
+If this exceeds 1,000 records, the script automatically slices the date range into monthly
+blocks, same as `pra-icr-search.py` does for PRASearch.
+
+**4. Full-text term search across rule titles/abstracts**
+```bash
+python eo-reg-search.py terms="artificial intelligence" eoStatusCode=CD --output ai_rules.csv --delay 2
+```
+
+---
+
+## Tool 4: EO 12866 Regulatory Review RIN Downloader (`eo-reg-download.py`)
+
+### Description
+The regulation-side counterpart to `pra-icr-download.py`. A RIN under EO 12866 review doesn't
+have agency-uploaded attachments sitting behind it the way an ICR does - the actual proposed
+or final rule text is published on federalregister.gov, outside reginfo.gov. What reginfo.gov
+*does* host for a RIN, and what this script collects into a per-RIN folder:
+
+* Every "View Rule" snapshot of the RIN across Unified Agenda publication cycles (a RIN
+  carried across multiple agenda editions gets a distinct snapshot each time), plus each
+  snapshot's machine-readable RIN Data XML export.
+* Every OIRA "Conclusion of EO 12866 Regulatory Review" record once a submission concludes.
+* Every EO 12866 meeting logged against the RIN - including any materials meeting requestors
+  submitted, which download through the exact same `downloadBtnOnClickHandler()` JS shim that
+  `pra-icr-download.py` already has to defeat for ICR attachments.
+
+Since reginfo.gov's EO Review search requires an explicit status (Pending Review vs.
+Concluded) with no "search all statuses" option, the script queries both automatically to
+assemble a RIN's complete review history before downloading anything.
+
+### Output
+The script generates a parent directory named after the RIN, containing:
+
+```text
+2060-AW46/
+├── review_history.json
+├── Rule_Data/
+│   ├── ViewRule_202410.html
+│   ├── ViewRule_202410.txt
+│   ├── RIN_Data_202410.xml
+│   ├── ViewRule_202504.html
+│   ├── ViewRule_202504.txt
+│   └── RIN_Data_202504.xml
+├── Review_Conclusions/
+│   ├── Conclusion_782011.txt
+│   └── Conclusion_949811.txt
+└── EO12866_Meetings/
+    ├── meetings_index.json
+    ├── Meeting_743873.txt
+    ├── ...
+    └── Documents/
+        ├── 6.10.2025 OMB 2024 Extension Rule.pdf
+        └── ...
+```
+
+### Example Use Cases
+
+**1. Download Everything (Rule Data and Meetings)**
+```bash
+python eo-reg-download.py 2060-AW46 --all
+```
+
+**2. Download Only the Rule Data (View Rule snapshots, RIN Data XML, review conclusions)**
+```bash
+python eo-reg-download.py 2060-AW46 --rule-data
+```
+
+**3. Download Only EO 12866 Meeting Records and Materials**
+```bash
+python eo-reg-download.py 2060-AW46 --meetings
 ```
