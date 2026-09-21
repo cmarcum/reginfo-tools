@@ -1,4 +1,4 @@
-# pra-icr-tools
+# reginfo-tools
 This repository contains Python tools designed to query, scrape, and download metadata and documents associated with information collection requests from the Office of Management and Budget's (OMB) Office of Information and Regulatory Affairs (OIRA) Paperwork Reduction Act (PRA) and Executive Order 12866 regulatory review database [reginfo.gov](https://reginfo.gov). 
 
 ## Background
