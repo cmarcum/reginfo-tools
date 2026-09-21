@@ -114,20 +114,11 @@ python pra-icr-download.py 202601-0920-012 --supporting
 ## Tool 3: EO 12866 Regulatory Review Search (`eo-reg-search.py`)
 
 ### Description
-The regulation-side counterpart to `pra-icr-search.py`. It maps directly to the "Search of
-Regulatory Review" form at [https://www.reginfo.gov/public/do/eoAdvancedSearchMain](https://www.reginfo.gov/public/do/eoAdvancedSearchMain) -
-the search behind OMB/OIRA's review of agency rules under Executive Order 12866 (proposed
-rules, final rules, and everything in between that crosses OIRA's desk before publication).
+The regulation-side counterpart to `pra-icr-search.py`. It maps directly to the "Search of Regulatory Review" form at [https://www.reginfo.gov/public/do/eoAdvancedSearchMain](https://www.reginfo.gov/public/do/eoAdvancedSearchMain) - the search behind OMB/OIRA's review of agency rules under Executive Order 12866 (proposed rules, final rules, and everything in between that crosses OIRA's desk before publication).
 
-This search form is the same vintage as PRASearch and shares its 1000-result hard cap, so the
-script carries over the same reactive monthly chunker. Unlike PRASearch, though, the EO Review
-results page offers a genuine "View All" link, so under the 1000-row cap there's no pagination
-loop to fight through - the whole result set comes back in one response.
+This search form is the same vintage as PRASearch and shares its 1000-result hard cap, so the script carries over the same reactive monthly chunker. Unlike PRASearch, though, the EO Review results page offers a genuine "View All" link, so under the 1000-row cap there's no pagination loop to fight through - the whole result set comes back in one response.
 
-Reginfo.gov silently rejects a query that omits `eoStatusCode` (Pending Review vs. Concluded)
-by just redisplaying the blank search form, so the script requires it up front rather than
-letting that fail invisibly. See [eo-review-codebook.md](eo-review-codebook.md) for the full
-field and agency/sub-agency code reference.
+Reginfo.gov silently rejects a query that omits `eoStatusCode` (Pending Review vs. Concluded) by just redisplaying the blank search form, so the script requires it up front rather than letting that fail invisibly. See [eo-review-codebook.md](eo-review-codebook.md) for the full field and agency/sub-agency code reference. Note that this codebook differs slightly from [codebook.md](codebook.md)
 
 ### Output
 A single CSV file with the tabular metadata for the matched rules. Fields include:
@@ -168,11 +159,7 @@ python eo-reg-search.py terms="artificial intelligence" eoStatusCode=CD --output
 ## Tool 4: EO 12866 Regulatory Review RIN Downloader (`eo-reg-download.py`)
 
 ### Description
-The regulation-side counterpart to `pra-icr-download.py`. A RIN under EO 12866 review doesn't
-have agency-uploaded attachments sitting behind it the way an ICR does - the actual proposed
-or final rule text is published on federalregister.gov, outside reginfo.gov. What reginfo.gov
-*does* host for a RIN, and what this script collects into a per-RIN folder:
-
+The regulation-side counterpart to `pra-icr-download.py`. A RIN under EO 12866 review doesn't have agency-uploaded attachments sitting behind it the way an ICR does - the actual proposed or final rule text is published on federalregister.gov, outside reginfo.gov. What reginfo.gov *does* host for a RIN, and what this script collects into a per-RIN folder:
 * Every "View Rule" snapshot of the RIN across Unified Agenda publication cycles (a RIN
   carried across multiple agenda editions gets a distinct snapshot each time), plus each
   snapshot's machine-readable RIN Data XML export.
@@ -181,34 +168,31 @@ or final rule text is published on federalregister.gov, outside reginfo.gov. Wha
   submitted, which download through the exact same `downloadBtnOnClickHandler()` JS shim that
   `pra-icr-download.py` already has to defeat for ICR attachments.
 
-Since reginfo.gov's EO Review search requires an explicit status (Pending Review vs.
-Concluded) with no "search all statuses" option, the script queries both automatically to
-assemble a RIN's complete review history before downloading anything.
+Since reginfo.gov's EO Review search requires an explicit status (Pending Review vs. Concluded) with no "search all statuses" option, the script queries both automatically to assemble a RIN's complete review history before downloading anything.
 
 ### Output
 The script generates a parent directory named after the RIN, containing:
 
 ```text
-2060-AW46/
+RIN/
 ├── review_history.json
 ├── Rule_Data/
-│   ├── ViewRule_202410.html
-│   ├── ViewRule_202410.txt
-│   ├── RIN_Data_202410.xml
-│   ├── ViewRule_202504.html
-│   ├── ViewRule_202504.txt
-│   └── RIN_Data_202504.xml
+│   ├── ViewRule_<UID>.html
+│   ├── ViewRule_<UID>.txt
+│   ├── RIN_Data_<UID>.xml
 ├── Review_Conclusions/
-│   ├── Conclusion_782011.txt
-│   └── Conclusion_949811.txt
+│   ├── Conclusion_<UID>.txt
+│   └── Conclusion_<UID>.txt
 └── EO12866_Meetings/
     ├── meetings_index.json
-    ├── Meeting_743873.txt
+    ├── Meeting_<UID:.txt
     ├── ...
     └── Documents/
-        ├── 6.10.2025 OMB 2024 Extension Rule.pdf
+        ├── <UPLOAD>.pdf
         └── ...
 ```
+
+As the expected file structure is built first, this directory tree is outputted even if there are no documents in the RIN docket.
 
 ### Example Use Cases
 
