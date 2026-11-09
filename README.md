@@ -109,6 +109,23 @@ python pra-icr-download.py 202601-0920-012 --collections
 python pra-icr-download.py 202601-0920-012 --supporting
 ```
 
+**4. Download Every ICR in an OMB Control Number's History**
+With `--history`, give an OMB Control Number instead of an ICR Reference Number. The script reads the control number's history page (`PRAOMBHistory`), then downloads each ICR it lists into its own folder. This example is the Survey of Inmates in Local Jails:
+```bash
+python pra-icr-download.py 1121-0098 --history --supporting
+```
+
+*Expected Output Structure:*
+```text
+1121-0098/
+├── 202502-1121-002/
+│   └── Supporting_Documents/
+├── 202405-1121-003/
+│   └── Supporting_Documents/
+└── ...
+```
+Older ICRs often have no documents attached, so their folders can be empty.
+
 ---
 
 ## Tool 3: EO 12866 Regulatory Review Search (`eo-reg-search.py`)

@@ -22,11 +22,32 @@ BASE_URL = "https://www.reginfo.gov"
 
 def parse_args():
     parser = argparse.ArgumentParser(description="PRA ICR Attachment Downloader")
-    parser.add_argument('ref_nbr', help="The ICR Reference Number (e.g., 202601-0920-012)")
+    parser.add_argument('ref_nbr', help="The ICR Reference Number (e.g., 202601-0920-012), or an OMB Control Number (e.g., 1121-0098) with --history")
     parser.add_argument('--collections', action='store_true', help="Download Collection Instruments")
     parser.add_argument('--supporting', action='store_true', help="Download Supporting Documents")
     parser.add_argument('--both', action='store_true', help="Download both sets of documents")
+    parser.add_argument('--history', action='store_true', help="Treat ref_nbr as an OMB Control Number and download every ICR in its history")
     return parser.parse_args()
+
+def get_history_refs(session, control_nbr):
+    """
+    Returns the ICR Reference Numbers listed on the OMB Control Number's history page
+    (PRAOMBHistory), newest first, as reginfo.gov lists them, plus the Common Form (RCF)
+    reference numbers on that page. RCF rows are other agencies' uses of a common form;
+    they link to PRAViewRCF rather than PRAViewICR and are not downloaded.
+    """
+    hist_url = f"{BASE_URL}/public/do/PRAOMBHistory?ombControlNumber={control_nbr}"
+    resp = session.get(hist_url, timeout=15)
+    resp.raise_for_status()
+    refs = []
+    for ref in re.findall(r'PRAViewICR\?ref_nbr=(\d{6}-\d{4}-\d{3})', resp.text):
+        if ref not in refs:
+            refs.append(ref)
+    rcf_refs = []
+    for ref in re.findall(r'PRAViewRCF\?ref_nbr=([^"\'&\s<>]+)', resp.text):
+        if ref not in rcf_refs:
+            rcf_refs.append(ref)
+    return refs, rcf_refs
 
 def extract_download_urls(soup, base_url):
     """
@@ -111,29 +132,10 @@ def download_file(session, url, dest_dir):
     except requests.exceptions.RequestException as e:
         print(f"  [!] Failed to download: {url}\n      Error: {e}")
 
-def main():
-    args = parse_args()
-    
-    if args.both:
-        args.collections = True
-        args.supporting = True
-        
-    if not (args.collections or args.supporting):
-        print("[!] Error: You must specify what to download: ")
-        print("[!] Add --collections, --supporting, or --both to your command.")
-        sys.exit(1)
-        
-    if not re.match(r'^\d{6}-\d{4}-\d{3}$', args.ref_nbr):
-        print(f"[!] Warning: '{args.ref_nbr}' does not strictly match the expected YYYYMM-XXXX-XXX format. Attempting anyway in case of some random legacy ICR or rocis bug (oy!)...")
-        
-    session = requests.Session()
-    session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Referer': f"{BASE_URL}/public/do/PRASearch"
-    })
-    
-    master_dir = args.ref_nbr
+def download_icr(session, args, ref_nbr, master_dir):
+    """
+    Downloads the requested document sets for one ICR into master_dir.
+    """
     
     # Get Supporting Documents
     if args.supporting:
@@ -141,8 +143,8 @@ def main():
         sup_dir = os.path.join(master_dir, "Supporting_Documents")
         os.makedirs(sup_dir, exist_ok=True)
         
-        print(f"\n[*] Scanning Supporting Documents for ICR {args.ref_nbr}...")
-        sup_url = f"{BASE_URL}/public/do/PRAViewDocument?ref_nbr={args.ref_nbr}"
+        print(f"\n[*] Scanning Supporting Documents for ICR {ref_nbr}...")
+        sup_url = f"{BASE_URL}/public/do/PRAViewDocument?ref_nbr={ref_nbr}"
         
         try:
             resp = session.get(sup_url, timeout=15)
@@ -169,8 +171,8 @@ def main():
         col_dir = os.path.join(master_dir, "Collection_Instruments")
         os.makedirs(col_dir, exist_ok=True)
         
-        print(f"\n[*] Scanning Collection Instruments for ICR {args.ref_nbr}...")
-        iclist_url = f"{BASE_URL}/public/do/PRAICList?ref_nbr={args.ref_nbr}"
+        print(f"\n[*] Scanning Collection Instruments for ICR {ref_nbr}...")
+        iclist_url = f"{BASE_URL}/public/do/PRAICList?ref_nbr={ref_nbr}"
         
         try:
             resp = session.get(iclist_url, timeout=15)
@@ -206,6 +208,53 @@ def main():
                     
         except requests.exceptions.RequestException as e:
             print(f"[!] Critical Error loading Collection Instruments page: {e}")
+
+def main():
+    args = parse_args()
+    
+    if args.both:
+        args.collections = True
+        args.supporting = True
+        
+    if not (args.collections or args.supporting):
+        print("[!] Error: You must specify what to download: ")
+        print("[!] Add --collections, --supporting, or --both to your command.")
+        sys.exit(1)
+        
+    if args.history:
+        if not re.match(r'^\d{4}-\d{4}$', args.ref_nbr):
+            print(f"[!] Error: with --history, give an OMB Control Number like 1121-0098 (got '{args.ref_nbr}').")
+            sys.exit(1)
+    elif not re.match(r'^\d{6}-\d{4}-\d{3}$', args.ref_nbr):
+        print(f"[!] Warning: '{args.ref_nbr}' does not strictly match the expected YYYYMM-XXXX-XXX format. Attempting anyway in case of some random legacy ICR or rocis bug (oy!)...")
+        
+    session = requests.Session()
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Referer': f"{BASE_URL}/public/do/PRASearch"
+    })
+    
+    if args.history:
+        control_nbr = args.ref_nbr
+        print(f"\n[*] Looking up the ICR history for OMB Control Number {control_nbr}...")
+        try:
+            refs, rcf_refs = get_history_refs(session, control_nbr)
+        except requests.exceptions.RequestException as e:
+            print(f"[!] Critical Error loading the history page: {e}")
+            sys.exit(1)
+        if not refs:
+            print(f"[!] No ICRs found in the history for {control_nbr}.")
+            sys.exit(1)
+        if rcf_refs:
+            print(f"[*] Skipping {len(rcf_refs)} Common Form (RCF) entries in the history. These are other agencies' uses of this common form; download one with its RCF reference number if you need it.")
+        print(f"[*] Found {len(refs)} ICRs in the history. Downloading each into {control_nbr}/<ICR Reference Number>/ ...")
+        for idx, ref in enumerate(refs, 1):
+            print(f"\n[*] ICR {idx}/{len(refs)}: {ref}")
+            download_icr(session, args, ref, os.path.join(control_nbr, ref))
+            time.sleep(1)
+    else:
+        download_icr(session, args, args.ref_nbr, args.ref_nbr)
 
     print("\n[*] ICR file downloads complete.")
 
